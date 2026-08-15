@@ -55,14 +55,37 @@ jobs:
 
       # Skip all lifecycle scripts during install (avoids supabase CLI
       # download failures, same as the upstream publish workflow).
-      # Full install with lifecycle scripts. This compiles the native
-      # modules needed at build time (macos-alias via node-gyp for the DMG
-      # maker, better-sqlite3 for Electron via the root postinstall) and
-      # fetches platform binaries. --ignore-scripts is NOT used because
-      # pnpm's targeted "rebuild" would silently skip macos-alias, which is
-      # an optional dependency of ds-store.
-      - name: Install dependencies (with lifecycle scripts)
-        run: pnpm install --frozen-lockfile
+      # pnpm 11 refuses to run build scripts for packages not listed in
+      # pnpm-workspace.yaml (allowBuilds), and macos-alias/fs-xattr are not
+      # on that list - so a full-scripts install is not viable here. Install
+      # with skipped scripts, then compile the native addons explicitly.
+      - name: Install dependencies (skip lifecycle scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild required dependencies
+        run: pnpm rebuild better-sqlite3 electron esbuild
+
+      # Run root postinstall: electron-rebuild -f -w better-sqlite3
+      - name: Rebuild better-sqlite3 for Electron ABI
+        run: pnpm run postinstall
+
+      # Native addons used by the DMG toolchain at build time
+      # (electron-installer-dmg -> appdmg -> ds-store -> macos-alias, plus
+      # fs-xattr for extended-attribute copying). pnpm rebuild refuses to
+      # run their scripts because they are not in allowBuilds, so compile
+      # them directly with node-gyp against the build-time Node.
+      - name: Build DMG toolchain native addons
+        shell: bash
+        run: |
+          export PATH="$PWD/node_modules/.bin:$PATH"
+          cd node_modules/macos-alias
+          node-gyp rebuild --release
+          echo "macos-alias addons:"
+          ls build/Release/
+          cd ../fs-xattr
+          node-gyp rebuild --release
+          echo "fs-xattr addons:"
+          ls build/Release/
 
       # .env is optional: without the Supabase secrets the app builds and
       # runs in local-only mode (SQLite). Add the repo secrets to the fork
