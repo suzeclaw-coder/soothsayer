@@ -55,21 +55,14 @@ jobs:
 
       # Skip all lifecycle scripts during install (avoids supabase CLI
       # download failures, same as the upstream publish workflow).
-      - name: Install dependencies (skip lifecycle scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
-      - name: Rebuild required dependencies
-        run: pnpm rebuild better-sqlite3 electron esbuild
-
-      # Run root postinstall: electron-rebuild -f -w better-sqlite3
-      - name: Rebuild better-sqlite3 for Electron ABI
-        run: pnpm run postinstall
-
-      # macos-alias (native addon used by the DMG toolchain: appdmg ->
-      # ds-store -> macos-alias) is not compiled because we installed with
-      # --ignore-scripts. Rebuild it so the DMG maker can load volume.node.
-      - name: Rebuild DMG toolchain native modules
-        run: pnpm rebuild macos-alias ds-store
+      # Full install with lifecycle scripts. This compiles the native
+      # modules needed at build time (macos-alias via node-gyp for the DMG
+      # maker, better-sqlite3 for Electron via the root postinstall) and
+      # fetches platform binaries. --ignore-scripts is NOT used because
+      # pnpm's targeted "rebuild" would silently skip macos-alias, which is
+      # an optional dependency of ds-store.
+      - name: Install dependencies (with lifecycle scripts)
+        run: pnpm install --frozen-lockfile
 
       # .env is optional: without the Supabase secrets the app builds and
       # runs in local-only mode (SQLite). Add the repo secrets to the fork
