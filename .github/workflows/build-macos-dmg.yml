@@ -65,6 +65,12 @@ jobs:
       - name: Rebuild better-sqlite3 for Electron ABI
         run: pnpm run postinstall
 
+      # macos-alias (native addon used by the DMG toolchain: appdmg ->
+      # ds-store -> macos-alias) is not compiled because we installed with
+      # --ignore-scripts. Rebuild it so the DMG maker can load volume.node.
+      - name: Rebuild DMG toolchain native modules
+        run: pnpm rebuild macos-alias ds-store
+
       # .env is optional: without the Supabase secrets the app builds and
       # runs in local-only mode (SQLite). Add the repo secrets to the fork
       # to enable cloud sync features, then re-run this workflow.
