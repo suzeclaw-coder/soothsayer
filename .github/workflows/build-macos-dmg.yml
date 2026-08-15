@@ -1,0 +1,136 @@
+name: Build macOS ARM64 DMG
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/build-macos-dmg.yml"
+      - "forge.config.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
+
+concurrency:
+  group: macos-dmg-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  CI: true
+  # Electron Forge currently fails to complete packaging on Node 24.16+.
+  # Keep the same pin used by .github/workflows/ci.yml and publish.yml.
+  NODE_VERSION: 24.15.0
+
+jobs:
+  build-macos-arm64:
+    name: Build macOS ARM64 DMG
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: Checkout code repository
+        uses: actions/checkout@v7
+
+      - name: Verify runner is Apple Silicon (arm64)
+        shell: bash
+        run: |
+          ARCH=$(uname -m)
+          echo "Runner architecture: $ARCH"
+          if [ "$ARCH" != "arm64" ]; then
+            echo "::error::Expected an arm64 (Apple Silicon) runner, got $ARCH"
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.10.0
+
+      - name: Setup node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # Skip all lifecycle scripts during install (avoids supabase CLI
+      # download failures, same as the upstream publish workflow).
+      - name: Install dependencies (skip lifecycle scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild required dependencies
+        run: pnpm rebuild better-sqlite3 electron esbuild
+
+      # Run root postinstall: electron-rebuild -f -w better-sqlite3
+      - name: Rebuild better-sqlite3 for Electron ABI
+        run: pnpm run postinstall
+
+      # .env is optional: without the Supabase secrets the app builds and
+      # runs in local-only mode (SQLite). Add the repo secrets to the fork
+      # to enable cloud sync features, then re-run this workflow.
+      - name: Create .env file (optional secrets)
+        shell: bash
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_UMAMI_ID: ${{ secrets.VITE_UMAMI_ID }}
+          VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: |
+          echo "VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-}" > .env
+          echo "VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY:-}" >> .env
+          echo "VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-}" >> .env
+          echo "VITE_UMAMI_ID=${VITE_UMAMI_ID:-}" >> .env
+          echo "VITE_SENTRY_DSN=${VITE_SENTRY_DSN:-}" >> .env
+          if [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]; then
+            echo "::warning::VITE_SUPABASE_PUBLISHABLE_KEY is not set - this DMG will run in local-only mode."
+          fi
+
+      - name: Make distributables (darwin, arm64)
+        run: pnpm make -- --arch=arm64
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      - name: Verify DMG artifact
+        shell: bash
+        run: |
+          echo "Build artifacts:"
+          find out -type f \( -name "*.dmg" -o -name "*.zip" \) | sort
+          DMG_COUNT=$(find out -type f -name "*.dmg" | wc -l | tr -d ' ')
+          if [ "$DMG_COUNT" -eq 0 ]; then
+            echo "::error::No DMG artifact found under out/"
+            exit 1
+          fi
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: soothsayer-macos-arm64-dmg
+          path: out/make/dmg/arm64/*.dmg
+          if-no-files-found: error
+
+      - name: Upload ZIP artifact (fallback)
+        uses: actions/upload-artifact@v7
+        with:
+          name: soothsayer-macos-arm64-zip
+          path: out/make/zip/**/*.zip
+          if-no-files-found: ignore
+
+      - name: Publish DMG to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          DMG=$(find out -type f -name "*.dmg" | head -1)
+          echo "Publishing $DMG"
+          RELEASE_TAG="macos-arm64"
+          VERSION=$(node -p "require('./package.json').version")
+          gh release create "$RELEASE_TAG" "$DMG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Soothsayer macOS (Apple Silicon) DMG" \
+            --notes "Soothsayer v$VERSION - macOS ARM64 (Apple Silicon) DMG built from this fork.\n\nThis build is unsigned, so on first open use right-click > Open (or System Settings > Privacy & Security > Open Anyway)." \
+            || echo "Release already exists; uploading assets instead."
+          gh release upload "$RELEASE_TAG" "$DMG" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Download URL:"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].url'

@@ -4,6 +4,7 @@ import path from "node:path";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
 import { MakerBase, type MakerOptions } from "@electron-forge/maker-base";
 import { MakerDeb } from "@electron-forge/maker-deb";
+import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerRpm } from "@electron-forge/maker-rpm";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
@@ -65,6 +66,7 @@ if (process.platform === "win32") {
 }
 
 if (process.platform === "darwin") {
+  makers.push(new MakerDMG({}));
   makers.push(new MakerZIP({}, ["darwin"]));
 }
 
@@ -86,7 +88,10 @@ const config: ForgeConfig = {
     asar: true,
     prune: true,
     executableName: "soothsayer",
-    icon: path.resolve(__dirname, "renderer/assets/logo/windows/icon"),
+    icon:
+      process.platform === "darwin"
+        ? path.resolve(__dirname, "renderer/assets/logo/macos/icon")
+        : path.resolve(__dirname, "renderer/assets/logo/windows/icon"),
     extraResource: [
       "./renderer/assets/logo",
       "./.forge-staging/poe1",
