@@ -573,14 +573,19 @@ describe("PoeLeaguesService", () => {
     it.each([
       "poe1",
       "poe2",
-    ] as const)("should return Standard fallback when Supabase fails and no cache exists (%s)", async (game) => {
+    ] as const)("should return fallback leagues when Supabase fails and no cache exists (%s)", async (game) => {
       mockCallEdgeFunction.mockRejectedValue(new Error("Network error"));
 
       const leagues = await service.fetchLeagues(game);
 
-      expect(leagues).toEqual([
-        { id: "Standard", name: "Standard", startAt: null, endAt: null },
-      ]);
+      const expected =
+        game === "poe1"
+          ? [
+              { id: "Allflame", name: "Allflame", startAt: null, endAt: null },
+              { id: "Standard", name: "Standard", startAt: null, endAt: null },
+            ]
+          : [{ id: "Standard", name: "Standard", startAt: null, endAt: null }];
+      expect(leagues).toEqual(expected);
     });
 
     it("should not fetch from Supabase when cache is within threshold", async () => {
@@ -693,7 +698,7 @@ describe("PoeLeaguesService", () => {
     it.each([
       "poe1",
       "poe2",
-    ] as const)("should return Standard fallback when Supabase is not configured and no cache exists (%s)", async (game) => {
+    ] as const)("should return fallback leagues when Supabase is not configured and no cache exists (%s)", async (game) => {
       mockIsConfigured.mockReturnValue(false);
       mockCallEdgeFunction.mockRejectedValue(
         new Error("Supabase client not configured"),
@@ -701,9 +706,14 @@ describe("PoeLeaguesService", () => {
 
       const leagues = await service.fetchLeagues(game);
 
-      expect(leagues).toEqual([
-        { id: "Standard", name: "Standard", startAt: null, endAt: null },
-      ]);
+      const expected =
+        game === "poe1"
+          ? [
+              { id: "Allflame", name: "Allflame", startAt: null, endAt: null },
+              { id: "Standard", name: "Standard", startAt: null, endAt: null },
+            ]
+          : [{ id: "Standard", name: "Standard", startAt: null, endAt: null }];
+      expect(leagues).toEqual(expected);
     });
 
     it.each([
@@ -1029,14 +1039,16 @@ describe("PoeLeaguesService", () => {
       // First call — caches fallback
       const leagues1 = await service.fetchLeagues("poe1");
       expect(leagues1).toEqual([
+        { id: "Allflame", name: "Allflame", startAt: null, endAt: null },
         { id: "Standard", name: "Standard", startAt: null, endAt: null },
       ]);
 
       // Second call — should use cached fallback, NOT call Supabase again
       mockCallEdgeFunction.mockClear();
       const leagues2 = await service.fetchLeagues("poe1");
-      expect(leagues2).toHaveLength(1);
-      expect(leagues2[0].name).toBe("Standard");
+      expect(leagues2).toHaveLength(2);
+      expect(leagues2.map((l) => l.name)).toContain("Allflame");
+      expect(leagues2.map((l) => l.name)).toContain("Standard");
       expect(mockCallEdgeFunction).not.toHaveBeenCalled();
     });
 

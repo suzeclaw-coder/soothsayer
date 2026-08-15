@@ -64,11 +64,24 @@ class PoeLeaguesService {
   // Prevents hammering Supabase when auth or network is persistently down.
   private static readonly FALLBACK_COOLDOWN_MINUTES = 2;
 
-  // Fallback league when both Supabase and local cache are unavailable.
-  // "Standard" is a permanent league that always exists for both poe1 and poe2.
-  private static readonly FALLBACK_LEAGUES: PoeLeague[] = [
-    { id: "Standard", name: "Standard", startAt: null, endAt: null },
-  ];
+  // Fallback leagues when both Supabase and local cache are unavailable.
+  // "Allflame" is the active PoE1 challenge league (3.29 "Curse of the
+  // Allflame"); Standard is a permanent league that always exists for both
+  // poe1 and poe2. Update these lists when a new season launches.
+  private static readonly FALLBACK_LEAGUES: Record<
+    "poe1" | "poe2",
+    PoeLeague[]
+  > = {
+    poe1: [
+      { id: "Allflame", name: "Allflame", startAt: null, endAt: null },
+      { id: "Standard", name: "Standard", startAt: null, endAt: null },
+    ],
+    poe2: [{ id: "Standard", name: "Standard", startAt: null, endAt: null }],
+  };
+
+  private static getFallbackLeagues(game: "poe1" | "poe2"): PoeLeague[] {
+    return PoeLeaguesService.FALLBACK_LEAGUES[game];
+  }
 
   // In-flight fetch promises keyed by game, used for request deduplication.
   // If a fetch for the same game is already in progress, callers share the
@@ -115,7 +128,7 @@ class PoeLeaguesService {
                 extra: { game },
               },
             );
-            return PoeLeaguesService.FALLBACK_LEAGUES;
+            return PoeLeaguesService.getFallbackLeagues(game);
           }
         }
       },
@@ -252,7 +265,7 @@ class PoeLeaguesService {
         },
       );
       await this.cacheFallback(gameKey);
-      return PoeLeaguesService.FALLBACK_LEAGUES;
+      return PoeLeaguesService.getFallbackLeagues(gameKey);
     }
   }
 
@@ -355,7 +368,7 @@ class PoeLeaguesService {
       Date.now() - maxAgeMs + cooldownMs,
     ).toISOString();
 
-    await this.updateCache(game, PoeLeaguesService.FALLBACK_LEAGUES);
+    await this.updateCache(game, PoeLeaguesService.getFallbackLeagues(game));
     // Overwrite the metadata timestamp with our fake one
     await this.repository.upsertCacheMetadata(game, fakeFetchedAt);
   }

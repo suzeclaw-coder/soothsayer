@@ -9,6 +9,10 @@ on:
       - "forge.config.ts"
       - "package.json"
       - "pnpm-lock.yaml"
+      - "main/**"
+      - "renderer/**"
+      - "types/**"
+      - "enums/**"
 
 concurrency:
   group: macos-dmg-${{ github.ref }}
